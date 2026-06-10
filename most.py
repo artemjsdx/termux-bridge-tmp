@@ -156,10 +156,12 @@ def start_tunnel(cf_bin):
     log_path = os.path.join(os.path.expanduser("~"), "cf_bridge.log")
     log_f = open(log_path, "w")
 
+    env = os.environ.copy()
+    env["GODEBUG"] = "netdns=cgo"
     proc = subprocess.Popen(
         [cf_bin, "tunnel", "--url", f"http://127.0.0.1:{PORT}",
          "--no-autoupdate"],
-        stdout=log_f, stderr=log_f
+        stdout=log_f, stderr=log_f, env=env
     )
 
     # ищем любой https URL на trycloudflare.com
