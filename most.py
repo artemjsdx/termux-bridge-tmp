@@ -155,21 +155,36 @@ def start_tunnel(cf_bin):
     """Запускает cloudflared и возвращает публичный URL."""
     proc = subprocess.Popen(
         [cf_bin, "tunnel", "--url", f"http://127.0.0.1:{PORT}"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
 
-    url_pattern = re.compile(r"https://[a-z0-9\-]+\.trycloudflare\.com")
-    timeout = time.time() + 30
+    # туннельный URL выглядит как https://слово-слово-слово.trycloudflare.com
+    # исключаем api.trycloudflare.com и подобные без дефиса
+    url_pattern = re.compile(r"https://[a-z0-9]+-[a-z0-9\-]+\.trycloudflare\.com")
+    timeout = time.time() + 45
     url = None
 
+    def read_stream(stream):
+        nonlocal url
+        for line in stream:
+            line = line.rstrip()
+            if line:
+                print(f"[cf] {line}", file=sys.stderr, flush=True)
+            if url:
+                continue
+            m = url_pattern.search(line)
+            if m:
+                url = m.group(0)
+
+    t_err = threading.Thread(target=read_stream, args=(proc.stderr,), daemon=True)
+    t_out = threading.Thread(target=read_stream, args=(proc.stdout,), daemon=True)
+    t_err.start()
+    t_out.start()
+
     while time.time() < timeout:
-        line = proc.stdout.readline()
-        if not line:
+        if url:
             break
-        m = url_pattern.search(line)
-        if m:
-            url = m.group(0)
-            break
+        time.sleep(0.3)
 
     return proc, url
 
