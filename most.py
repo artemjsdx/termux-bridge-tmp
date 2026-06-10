@@ -153,38 +153,51 @@ def start_server():
 
 def start_tunnel(cf_bin):
     """Запускает cloudflared и возвращает публичный URL."""
+    log_path = "/tmp/cf_bridge.log"
+    log_f = open(log_path, "w")
+
     proc = subprocess.Popen(
-        [cf_bin, "tunnel", "--url", f"http://127.0.0.1:{PORT}"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        [cf_bin, "tunnel", "--url", f"http://127.0.0.1:{PORT}",
+         "--no-autoupdate"],
+        stdout=log_f, stderr=log_f
     )
 
-    # туннельный URL выглядит как https://слово-слово-слово.trycloudflare.com
-    # исключаем api.trycloudflare.com и подобные без дефиса
-    url_pattern = re.compile(r"https://[a-z0-9]+-[a-z0-9\-]+\.trycloudflare\.com")
+    # ищем любой https URL на trycloudflare.com
+    url_pattern = re.compile(rb"https://([A-Za-z0-9][A-Za-z0-9\-]*)\.(trycloudflare\.com)")
     timeout = time.time() + 45
     url = None
 
-    def read_stream(stream):
-        nonlocal url
-        for line in stream:
-            line = line.rstrip()
-            if line:
-                print(f"[cf] {line}", file=sys.stderr, flush=True)
-            if url:
-                continue
-            m = url_pattern.search(line)
-            if m:
-                url = m.group(0)
-
-    t_err = threading.Thread(target=read_stream, args=(proc.stderr,), daemon=True)
-    t_out = threading.Thread(target=read_stream, args=(proc.stdout,), daemon=True)
-    t_err.start()
-    t_out.start()
-
     while time.time() < timeout:
-        if url:
-            break
-        time.sleep(0.3)
+        time.sleep(0.5)
+        log_f.flush()
+        try:
+            with open(log_path, "rb") as f:
+                data = f.read()
+            matches = url_pattern.findall(data)
+            # фильтруем api.trycloudflare.com
+            for sub, domain in matches:
+                sub_str = sub.decode()
+                if sub_str != "api":
+                    url = f"https://{sub_str}.{domain.decode()}"
+                    break
+            if url:
+                break
+            # печатаем последние строки лога для диагностики
+            lines = data.decode(errors="replace").strip().splitlines()
+            if lines:
+                print(f"[cf] {lines[-1]}", flush=True)
+        except Exception:
+            pass
+
+    log_f.close()
+
+    if not url:
+        # показываем весь лог для диагностики
+        try:
+            with open(log_path, "r", errors="replace") as f:
+                print("[cf-log]", f.read()[-2000:], flush=True)
+        except Exception:
+            pass
 
     return proc, url
 
