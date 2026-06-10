@@ -153,7 +153,7 @@ def start_server():
 
 def start_tunnel(cf_bin):
     """Запускает cloudflared и возвращает публичный URL."""
-    log_path = "/tmp/cf_bridge.log"
+    log_path = os.path.join(os.path.expanduser("~"), "cf_bridge.log")
     log_f = open(log_path, "w")
 
     proc = subprocess.Popen(
